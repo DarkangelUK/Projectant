@@ -18,11 +18,11 @@ A Windows desktop application for managing tasks, project roadmaps, and tracking
 
 1\. Clone the repository:
 
-&#x20;  ```bash
-
-&#x20;  git clone \[https://github.com/DarkangelUK/Projectant](https://github.com/DarkangelUK/Projectant)
+&#x20;  git clone https://github.com/DarkangelUK/Projectant.git
 
 &#x20;  cd Projectant
+
+
 
 
 
