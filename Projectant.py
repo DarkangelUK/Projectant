@@ -335,6 +335,163 @@ class TaskEditDialog(ctk.CTkToplevel):
         self.destroy()
 
 
+# --- Task View Details & Activity Log Window ---
+class TaskDetailsDialog(ctk.CTkToplevel):
+    def __init__(self, parent, task_id, db_path, on_updated_callback=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.task_id = task_id
+        self.db_path = db_path
+        self.on_updated_callback = on_updated_callback
+
+        self.title("Task Details & Work Log")
+        self.geometry("640x620")
+        self.transient(parent)
+        self.grab_set()
+
+        parent_x = parent.winfo_x(); parent_y = parent.winfo_y()
+        parent_width = parent.winfo_width(); parent_height = parent.winfo_height()
+        dialog_width = 640; dialog_height = 620
+        x = parent_x + (parent_width - dialog_width) // 2
+        y = parent_y + (parent_height - dialog_height) // 2
+        self.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
+
+        # Header Info Section
+        self.header_card = ctk.CTkFrame(self, fg_color="#1E2328", corner_radius=8)
+        self.header_card.grid(row=0, column=0, sticky="ew", padx=15, pady=(15, 10))
+        self.header_card.grid_columnconfigure(0, weight=1)
+
+        self.lbl_task_title = ctk.CTkLabel(self.header_card, text="", font=ctk.CTkFont(size=14, weight="bold"), anchor="w", justify="left", wraplength=580)
+        self.lbl_task_title.grid(row=0, column=0, sticky="w", padx=12, pady=(10, 4))
+
+        self.lbl_meta = ctk.CTkLabel(self.header_card, text="", font=ctk.CTkFont(size=12), text_color="#94A3B8", anchor="w", justify="left")
+        self.lbl_meta.grid(row=1, column=0, sticky="w", padx=12, pady=(0, 10))
+
+        # Add Note Section
+        input_container = ctk.CTkFrame(self, fg_color="transparent")
+        input_container.grid(row=1, column=0, sticky="ew", padx=15, pady=0)
+        input_container.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(input_container, text="Add Update / Progress Note:", font=ctk.CTkFont(size=13, weight="bold")).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        
+        self.txt_new_note = ctk.CTkTextbox(input_container, height=65, font=ctk.CTkFont(size=12))
+        self.txt_new_note.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+
+        btn_row = ctk.CTkFrame(input_container, fg_color="transparent")
+        btn_row.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        btn_row.grid_columnconfigure(0, weight=1)
+
+        btn_add_note = ctk.CTkButton(btn_row, text="+ Add Progress Note", fg_color="#2E8B57", hover_color="#20603C", height=28, command=self.add_note)
+        btn_add_note.pack(side="right")
+
+        # Reverse Chronological Notes Feed
+        feed_header = ctk.CTkFrame(self, fg_color="transparent")
+        feed_header.grid(row=2, column=0, sticky="nsew", padx=15, pady=(0, 15))
+        feed_header.grid_columnconfigure(0, weight=1)
+        feed_header.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(feed_header, text="Task Work Log (Newest First)", font=ctk.CTkFont(size=13, weight="bold"), text_color="#38BDF8").grid(row=0, column=0, sticky="w", pady=(0, 4))
+        self.notes_feed = ctk.CTkScrollableFrame(feed_header, fg_color="#181B1F", corner_radius=6)
+        self.notes_feed.grid(row=1, column=0, sticky="nsew")
+        self.notes_feed.grid_columnconfigure(0, weight=1)
+
+        self.load_task_details()
+
+    def load_task_details(self):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT task_description, priority, start_date, due_date, is_completed, completed_date, completion_notes, notes FROM tasks WHERE id = ?", (self.task_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return
+
+        desc, priority, s_date, d_date, is_comp, c_date, c_note, raw_notes = row
+
+        status_txt = "Completed" if is_comp else "Active"
+        prio_txt = priority if priority else "Medium"
+        dates_txt = []
+        if s_date: dates_txt.append(f"Start: {s_date}")
+        if d_date: dates_txt.append(f"Due: {d_date}")
+        timing = " | ".join(dates_txt) if dates_txt else "No scheduled dates"
+
+        self.lbl_task_title.configure(text=desc)
+        self.lbl_meta.configure(text=f"Status: {status_txt}  •  Priority: {prio_txt}  •  {timing}")
+
+        # Render Log Entries
+        for w in self.notes_feed.winfo_children():
+            w.destroy()
+
+        notes_list = []
+        if raw_notes:
+            try:
+                notes_list = json.loads(raw_notes)
+            except json.JSONDecodeError:
+                notes_list = [{"timestamp": "Prior Note", "text": raw_notes}]
+
+        if not notes_list and not c_note:
+            ctk.CTkLabel(self.notes_feed, text="No work log notes recorded yet.", text_color="#64748B").pack(pady=15)
+            return
+
+        # Newest note at the top
+        for i, item in enumerate(reversed(notes_list)):
+            card = ctk.CTkFrame(self.notes_feed, fg_color="#24292E", corner_radius=5)
+            card.pack(fill="x", padx=6, pady=4)
+            card.grid_columnconfigure(0, weight=1)
+
+            ts_lbl = ctk.CTkLabel(card, text=f"⏱ {item.get('timestamp', '')}", font=ctk.CTkFont(size=11, weight="bold"), text_color="#38BDF8")
+            ts_lbl.grid(row=0, column=0, sticky="w", padx=10, pady=(6, 2))
+
+            msg_lbl = ctk.CTkLabel(card, text=item.get("text", ""), font=ctk.CTkFont(size=12), text_color="#F1F5F9", justify="left", anchor="w", wraplength=540)
+            msg_lbl.grid(row=1, column=0, sticky="w", padx=10, pady=(0, 6))
+
+        if c_note and c_note.strip():
+            comp_card = ctk.CTkFrame(self.notes_feed, fg_color="#1E293B", corner_radius=5)
+            comp_card.pack(fill="x", padx=6, pady=4)
+            comp_card.grid_columnconfigure(0, weight=1)
+
+            ctk.CTkLabel(comp_card, text=f"✔ Completion Note ({c_date or 'Recorded'})", font=ctk.CTkFont(size=11, weight="bold"), text_color="#10B981").grid(row=0, column=0, sticky="w", padx=10, pady=(6, 2))
+            ctk.CTkLabel(comp_card, text=c_note.strip(), font=ctk.CTkFont(size=12, slant="italic"), text_color="#E2E8F0", justify="left", anchor="w", wraplength=540).grid(row=1, column=0, sticky="w", padx=10, pady=(0, 6))
+
+    def add_note(self):
+        new_text = self.txt_new_note.get("1.0", "end-1c").strip()
+        if not new_text:
+            return
+
+        now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT notes FROM tasks WHERE id = ?", (self.task_id,))
+        res = cursor.fetchone()
+        
+        current_notes = []
+        if res and res[0]:
+            try:
+                current_notes = json.loads(res[0])
+            except json.JSONDecodeError:
+                current_notes = [{"timestamp": "Prior Note", "text": res[0]}]
+
+        current_notes.append({
+            "timestamp": now_str,
+            "text": new_text
+        })
+
+        cursor.execute("UPDATE tasks SET notes = ? WHERE id = ?", (json.dumps(current_notes), self.task_id))
+        conn.commit()
+        conn.close()
+
+        self.txt_new_note.delete("1.0", "end")
+        self.load_task_details()
+
+        if self.on_updated_callback:
+            self.on_updated_callback()
+
+
 # --- Time Entry Edit Dialog ---
 class TimeEntryEditDialog(ctk.CTkToplevel):
     def __init__(self, parent, entry_data):
@@ -571,14 +728,12 @@ class ProjectApp(ctk.CTk):
         menu = dropdown._dropdown_menu
         menu.configure(values=dropdown._values)
 
-        # Force geometry calculation to get the true height
         menu.update_idletasks()
         menu_height = menu.winfo_reqheight()
 
         root_x = dropdown.winfo_rootx()
         root_y = dropdown.winfo_rooty()
 
-        # Place the bottom edge 4px above the top edge of the selector button
         spawn_x = root_x
         spawn_y = max(10, root_y - menu_height - 4)
 
@@ -645,7 +800,8 @@ class ProjectApp(ctk.CTk):
                             is_completed INTEGER DEFAULT 0,
                             completed_date TEXT,
                             completion_notes TEXT,
-                            priority TEXT DEFAULT 'Medium'
+                            priority TEXT DEFAULT 'Medium',
+                            notes TEXT DEFAULT '[]'
                           )''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS questions (
                             id INTEGER PRIMARY KEY, 
@@ -708,6 +864,11 @@ class ProjectApp(ctk.CTk):
             cursor.execute("SELECT priority FROM tasks LIMIT 1")
         except sqlite3.OperationalError:
             cursor.execute("ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT 'Medium'")
+
+        try:
+            cursor.execute("SELECT notes FROM tasks LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE tasks ADD COLUMN notes TEXT DEFAULT '[]'")
             
         conn.commit()
         conn.close()
@@ -1267,7 +1428,7 @@ class ProjectApp(ctk.CTk):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO tasks (task_description, priority, start_date, due_date) VALUES (?, ?, ?, ?)",
+            "INSERT INTO tasks (task_description, priority, start_date, due_date, notes) VALUES (?, ?, ?, ?, '[]')",
             (task_data["description"], task_data["priority"], task_data["start_date"], task_data["due_date"])
         )
         conn.commit()
@@ -1275,6 +1436,12 @@ class ProjectApp(ctk.CTk):
 
         self.load_tasks()
         self.load_upcoming_tasks()
+
+    def open_task_details(self, task_id, db_target=None):
+        target_db = db_target if db_target else self.db_path
+        if not target_db:
+            return
+        TaskDetailsDialog(self, task_id, target_db, on_updated_callback=self.load_tasks)
 
     def open_edit_task_dialog(self, task_id, db_target=None):
         target_db = db_target if db_target else self.db_path
@@ -1339,13 +1506,29 @@ class ProjectApp(ctk.CTk):
             return "⚪ Low", "#94A3B8"
         return "🟡 Med", "#F59E0B"
 
+    def _get_notes_count(self, raw_notes):
+        if not raw_notes:
+            return 0
+        try:
+            parsed = json.loads(raw_notes)
+            if isinstance(parsed, list):
+                return len(parsed)
+            return 1
+        except json.JSONDecodeError:
+            return 1 if str(raw_notes).strip() else 0
+
     def _render_task_item(self, parent_frame, task_info, row_index, is_completed=False):
-        task_id, desc, priority, s_date, d_date, target_db = task_info
+        task_id, desc, priority, s_date, d_date, raw_notes, target_db = task_info
+        notes_count = self._get_notes_count(raw_notes)
+        display_text = f"{desc} - {notes_count}" if notes_count > 0 else desc
 
         bg_color = "#1E2328" if is_completed else "#24292E"
-        card = ctk.CTkFrame(parent_frame, fg_color=bg_color, corner_radius=5)
+        card = ctk.CTkFrame(parent_frame, fg_color=bg_color, corner_radius=5, cursor="hand2")
         card.grid(row=row_index, column=0, sticky="ew", padx=2, pady=2)
         card.grid_columnconfigure(1, weight=1)
+
+        open_details_handler = lambda e, t_id=task_id, db=target_db: self.open_task_details(t_id, db_target=db)
+        card.bind("<Button-1>", open_details_handler)
 
         if not is_completed:
             check = ctk.CTkCheckBox(card, text="", width=20, checkbox_width=18, checkbox_height=18,
@@ -1354,18 +1537,21 @@ class ProjectApp(ctk.CTk):
         else:
             check_lbl = ctk.CTkLabel(card, text="✔", font=ctk.CTkFont(size=12, weight="bold"), text_color="#10B981")
             check_lbl.grid(row=0, column=0, padx=(8, 4), pady=4, sticky="w")
+            check_lbl.bind("<Button-1>", open_details_handler)
 
         content_frame = ctk.CTkFrame(card, fg_color="transparent")
         content_frame.grid(row=0, column=1, sticky="ew", padx=2, pady=3)
         content_frame.grid_columnconfigure(0, weight=1)
+        content_frame.bind("<Button-1>", open_details_handler)
 
         p_badge, p_color = self._format_priority_badge(priority)
         prio_lbl = ctk.CTkLabel(content_frame, text=p_badge, font=ctk.CTkFont(size=10, weight="bold"), text_color=p_color)
         prio_lbl.pack(side="left", padx=(0, 6))
+        prio_lbl.bind("<Button-1>", open_details_handler)
 
         task_lbl = ctk.CTkLabel(
             content_frame, 
-            text=desc, 
+            text=display_text, 
             font=ctk.CTkFont(size=12),
             text_color="#CBD5E1" if is_completed else "#F1F5F9",
             anchor="w", 
@@ -1373,6 +1559,7 @@ class ProjectApp(ctk.CTk):
             wraplength=600
         )
         task_lbl.pack(side="left", fill="x", expand=True)
+        task_lbl.bind("<Button-1>", open_details_handler)
 
         badge_text, is_overdue = self._format_date_badge(s_date, d_date)
         if badge_text:
@@ -1385,6 +1572,7 @@ class ProjectApp(ctk.CTk):
                 font=ctk.CTkFont(size=11, weight="bold")
             )
             meta_lbl.pack(side="right", padx=(8, 4))
+            meta_lbl.bind("<Button-1>", open_details_handler)
 
         action_btn_frame = ctk.CTkFrame(card, fg_color="transparent")
         action_btn_frame.grid(row=0, column=2, padx=(2, 6), pady=4, sticky="e")
@@ -1448,11 +1636,18 @@ class ProjectApp(ctk.CTk):
                     conn = sqlite3.connect(p_path)
                     cursor = conn.cursor()
                     try:
-                        cursor.execute("SELECT id, task_description, priority, start_date, due_date FROM tasks WHERE is_completed = 0")
+                        cursor.execute("SELECT id, task_description, priority, start_date, due_date, notes FROM tasks WHERE is_completed = 0")
                     except sqlite3.OperationalError:
-                        cursor.execute("ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT 'Medium'")
+                        try:
+                            cursor.execute("ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT 'Medium'")
+                        except sqlite3.OperationalError:
+                            pass
+                        try:
+                            cursor.execute("ALTER TABLE tasks ADD COLUMN notes TEXT DEFAULT '[]'")
+                        except sqlite3.OperationalError:
+                            pass
                         conn.commit()
-                        cursor.execute("SELECT id, task_description, priority, start_date, due_date FROM tasks WHERE is_completed = 0")
+                        cursor.execute("SELECT id, task_description, priority, start_date, due_date, notes FROM tasks WHERE is_completed = 0")
                     tasks_in_project = cursor.fetchall()
                     conn.close()
                 except Exception:
@@ -1463,7 +1658,6 @@ class ProjectApp(ctk.CTk):
 
                 total_active_tasks += len(tasks_in_project)
 
-                # Project Section Group Box
                 proj_group = ctk.CTkFrame(self.main_todo_frame, fg_color="#1E2227", corner_radius=6, border_width=1, border_color="#334155")
                 proj_group.grid(row=row_counter, column=0, sticky="ew", padx=2, pady=(6, 8))
                 proj_group.grid_columnconfigure(0, weight=1)
@@ -1481,8 +1675,8 @@ class ProjectApp(ctk.CTk):
                 prio_order = {"High": 0, "Medium": 1, "Low": 2}
                 tasks_in_project.sort(key=lambda t: (prio_order.get(t[2] or "Medium", 1), t[4] is None, t[4] or ""))
 
-                for sub_i, (t_id, desc, prio, s_date, d_date) in enumerate(tasks_in_project):
-                    self._render_task_item(proj_group, (t_id, desc, prio, s_date, d_date, p_path), sub_i + 1, is_completed=False)
+                for sub_i, (t_id, desc, prio, s_date, d_date, raw_notes) in enumerate(tasks_in_project):
+                    self._render_task_item(proj_group, (t_id, desc, prio, s_date, d_date, raw_notes, p_path), sub_i + 1, is_completed=False)
 
             if total_active_tasks == 0:
                 ctk.CTkLabel(self.main_todo_frame, text="No outstanding tasks found across any active projects!", text_color="#94A3B8").grid(row=0, column=0, padx=10, pady=10, sticky="w")
@@ -1494,14 +1688,21 @@ class ProjectApp(ctk.CTk):
             cursor = conn.cursor()
             
             try:
-                cursor.execute("SELECT id, task_description, priority, start_date, due_date FROM tasks WHERE is_completed = 0 ORDER BY id ASC")
+                cursor.execute("SELECT id, task_description, priority, start_date, due_date, notes FROM tasks WHERE is_completed = 0 ORDER BY id ASC")
             except sqlite3.OperationalError:
-                cursor.execute("ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT 'Medium'")
+                try:
+                    cursor.execute("ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT 'Medium'")
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    cursor.execute("ALTER TABLE tasks ADD COLUMN notes TEXT DEFAULT '[]'")
+                except sqlite3.OperationalError:
+                    pass
                 conn.commit()
-                cursor.execute("SELECT id, task_description, priority, start_date, due_date FROM tasks WHERE is_completed = 0 ORDER BY id ASC")
+                cursor.execute("SELECT id, task_description, priority, start_date, due_date, notes FROM tasks WHERE is_completed = 0 ORDER BY id ASC")
             active_tasks = cursor.fetchall()
 
-            cursor.execute("SELECT id, task_description, priority, completed_date, completion_notes, start_date, due_date FROM tasks WHERE is_completed = 1 ORDER BY id DESC")
+            cursor.execute("SELECT id, task_description, priority, completed_date, completion_notes, start_date, due_date, notes FROM tasks WHERE is_completed = 1 ORDER BY id DESC")
             completed_tasks = cursor.fetchall()
             conn.close()
 
@@ -1511,8 +1712,8 @@ class ProjectApp(ctk.CTk):
                 if not active_tasks:
                     ctk.CTkLabel(self.main_todo_frame, text="No active tasks. You're all caught up!", text_color="#94A3B8").grid(row=0, column=0, padx=10, pady=10, sticky="w")
                 else:
-                    for i, (t_id, desc, prio, s_date, d_date) in enumerate(active_tasks):
-                        self._render_task_item(self.main_todo_frame, (t_id, desc, prio, s_date, d_date, self.db_path), i, is_completed=False)
+                    for i, (t_id, desc, prio, s_date, d_date, raw_notes) in enumerate(active_tasks):
+                        self._render_task_item(self.main_todo_frame, (t_id, desc, prio, s_date, d_date, raw_notes, self.db_path), i, is_completed=False)
 
             # Render Completed Tasks
             if hasattr(self, 'completed_todo_frame') and self.completed_todo_frame.winfo_exists():
@@ -1520,10 +1721,13 @@ class ProjectApp(ctk.CTk):
                 if not completed_tasks:
                     ctk.CTkLabel(self.completed_todo_frame, text="No completed tasks recorded yet.", text_color="#94A3B8").grid(row=0, column=0, padx=10, pady=10, sticky="w")
                 else:
-                    for i, (t_id, desc, prio, completed_date, completion_notes, s_date, d_date) in enumerate(completed_tasks):
-                        card = ctk.CTkFrame(self.completed_todo_frame, fg_color="#1E2328", corner_radius=5)
+                    for i, (t_id, desc, prio, completed_date, completion_notes, s_date, d_date, raw_notes) in enumerate(completed_tasks):
+                        card = ctk.CTkFrame(self.completed_todo_frame, fg_color="#1E2328", corner_radius=5, cursor="hand2")
                         card.grid(row=i, column=0, sticky="ew", padx=2, pady=2)
                         card.grid_columnconfigure(1, weight=1)
+
+                        open_details_handler = lambda e, target_id=t_id: self.open_task_details(target_id)
+                        card.bind("<Button-1>", open_details_handler)
 
                         comp_date_disp = "N/A"
                         if completed_date:
@@ -1533,17 +1737,22 @@ class ProjectApp(ctk.CTk):
                             except ValueError:
                                 comp_date_disp = completed_date
 
+                        notes_count = self._get_notes_count(raw_notes)
+                        comp_display_text = f"✔ {desc} - {notes_count}" if notes_count > 0 else f"✔ {desc}"
+
                         row_frame = ctk.CTkFrame(card, fg_color="transparent")
                         row_frame.grid(row=0, column=0, sticky="ew", padx=6, pady=3)
                         row_frame.grid_columnconfigure(1, weight=1)
+                        row_frame.bind("<Button-1>", open_details_handler)
 
                         p_badge, p_color = self._format_priority_badge(prio)
                         prio_lbl = ctk.CTkLabel(row_frame, text=p_badge, font=ctk.CTkFont(size=10, weight="bold"), text_color=p_color)
                         prio_lbl.grid(row=0, column=0, padx=(0, 6), sticky="w")
+                        prio_lbl.bind("<Button-1>", open_details_handler)
 
                         desc_lbl = ctk.CTkLabel(
                             row_frame, 
-                            text=f"✔ {desc}", 
+                            text=comp_display_text, 
                             font=ctk.CTkFont(size=12), 
                             text_color="#94A3B8", 
                             anchor="w", 
@@ -1551,9 +1760,11 @@ class ProjectApp(ctk.CTk):
                             wraplength=600
                         )
                         desc_lbl.grid(row=0, column=1, sticky="w")
+                        desc_lbl.bind("<Button-1>", open_details_handler)
 
                         meta_lbl = ctk.CTkLabel(row_frame, text=f"Completed: {comp_date_disp}", text_color="#64748B", font=ctk.CTkFont(size=11))
                         meta_lbl.grid(row=0, column=2, padx=(6, 4), sticky="e")
+                        meta_lbl.bind("<Button-1>", open_details_handler)
 
                         btn_edit = ctk.CTkButton(
                             row_frame, 
@@ -1590,6 +1801,7 @@ class ProjectApp(ctk.CTk):
                                 wraplength=750
                             )
                             notes_lbl.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 3))
+                            notes_lbl.bind("<Button-1>", open_details_handler)
 
     # --- Roadmap / Gantt Timeline View ---
     def switch_to_roadmap_view(self):
@@ -2792,14 +3004,14 @@ class ProjectApp(ctk.CTk):
                 except sqlite3.OperationalError:
                     pass
 
-                # 3. Open Tasks with Priority & Dates
+                # 3. Open Tasks with Priority, Dates, and Logged Notes
                 open_tasks = []
                 try:
-                    cursor.execute("SELECT task_description, priority, start_date, due_date FROM tasks WHERE is_completed = 0 ORDER BY id ASC")
+                    cursor.execute("SELECT task_description, priority, start_date, due_date, notes FROM tasks WHERE is_completed = 0 ORDER BY id ASC")
                     open_tasks = cursor.fetchall()
                 except sqlite3.OperationalError:
                     cursor.execute("SELECT task_description, start_date, due_date FROM tasks WHERE is_completed = 0 ORDER BY id ASC")
-                    open_tasks = [(r[0], "Medium", r[1], r[2]) for r in cursor.fetchall()]
+                    open_tasks = [(r[0], "Medium", r[1], r[2], "[]") for r in cursor.fetchall()]
 
                 # 4. Open Questions / Blockers
                 open_questions = []
@@ -2882,6 +3094,8 @@ class ProjectApp(ctk.CTk):
                     html_blocks.append('<div style="margin-top: 8px;"><strong style="font-size: 13px; color: #B45309;">Outstanding Tasks / Next Steps:</strong><ul style="margin: 4px 0 8px 20px; padding: 0;">')
                     for item in open_tasks:
                         task_desc, prio, s_date, d_date = item[0], item[1], item[2], item[3]
+                        raw_task_notes = item[4] if len(item) > 4 else "[]"
+                        
                         date_badge, is_overdue = self._format_date_badge(s_date, d_date)
                         date_str_plain = f" [{date_badge}]" if date_badge else ""
                         prio_str_plain = f" [{prio}]" if prio else ""
@@ -2893,7 +3107,29 @@ class ProjectApp(ctk.CTk):
                             html_date = f' <span style="color: {color}; font-size: 11px; font-weight: 600;">{date_badge}</span>'
                         prio_color = "#DC2626" if prio == "High" else ("#D97706" if prio == "Medium" else "#64748B")
                         html_prio = f' <span style="color: {prio_color}; font-size: 11px; font-weight: 600;">[{prio}]</span>' if prio else ""
-                        html_blocks.append(f'<li style="margin-bottom: 3px; color: #475569;">◻ {task_desc}{html_prio}{html_date}</li>')
+                        html_blocks.append(f'<li style="margin-bottom: 4px; color: #475569;">◻ <strong>{task_desc}</strong>{html_prio}{html_date}')
+
+                        # Filter and parse task log notes within date range
+                        if raw_task_notes:
+                            try:
+                                parsed_notes = json.loads(raw_task_notes)
+                                recent_notes = []
+                                for n in parsed_notes:
+                                    ts_str = n.get("timestamp", "")
+                                    try:
+                                        ts_dt = datetime.strptime(ts_str, "%d/%m/%Y %H:%M")
+                                        if ts_dt >= cutoff_date:
+                                            recent_notes.append(n)
+                                    except ValueError:
+                                        recent_notes.append(n)
+
+                                for n in recent_notes:
+                                    plain_lines.append(f"       ↳ [{n.get('timestamp')}] {n.get('text')}")
+                                    html_blocks.append(f'<div style="color: #64748B; font-size: 12px; margin-left: 12px; font-style: italic;">↳ <strong>{n.get("timestamp")}:</strong> {n.get("text")}</div>')
+                            except Exception:
+                                pass
+
+                        html_blocks.append('</li>')
                     html_blocks.append('</ul></div>')
 
                 if open_questions:
