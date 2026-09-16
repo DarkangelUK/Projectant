@@ -184,12 +184,14 @@ class CustomDialog(ctk.CTkToplevel):
         self.destroy()
 
 
-# --- Task Creation Dialog with Structured Date Options ---
-class TaskCreateDialog(ctk.CTkToplevel):
-    def __init__(self, parent):
+# --- Task Create & Edit Dialog with Priority and Date Options ---
+class TaskEditDialog(ctk.CTkToplevel):
+    def __init__(self, parent, task_id=None, initial_data=None):
         super().__init__(parent)
-        self.title("New Task")
-        self.geometry("460x340")
+        self.task_id = task_id
+        is_edit = task_id is not None
+        self.title("Edit Task" if is_edit else "New Task")
+        self.geometry("480x400")
         self.transient(parent)
         self.grab_set()
         self.result = None
@@ -198,23 +200,50 @@ class TaskCreateDialog(ctk.CTkToplevel):
         parent_y = parent.winfo_y()
         parent_width = parent.winfo_width()
         parent_height = parent.winfo_height()
-        dialog_width = 460
-        dialog_height = 340
+        dialog_width = 480
+        dialog_height = 400
         x = parent_x + (parent_width - dialog_width) // 2
         y = parent_y + (parent_height - dialog_height) // 2
         self.geometry(f"{dialog_width}x{dialog_height}+{x}+{y}")
 
         self.grid_columnconfigure(0, weight=1)
 
+        init_desc = initial_data.get("description", "") if initial_data else ""
+        init_start = initial_data.get("start_date") if initial_data else None
+        init_due = initial_data.get("due_date") if initial_data else None
+        init_prio = initial_data.get("priority", "Medium") if initial_data else "Medium"
+        if not init_prio:
+            init_prio = "Medium"
+
         ctk.CTkLabel(self, text="Task Description:", font=ctk.CTkFont(weight="bold")).grid(row=0, column=0, sticky="w", padx=20, pady=(15, 2))
-        self.entry_desc = ctk.CTkEntry(self, width=420, placeholder_text="e.g., Review project roadmap and deliverables")
+        self.entry_desc = ctk.CTkEntry(self, width=440, placeholder_text="e.g., Deploy Intune policy updates")
+        self.entry_desc.insert(0, init_desc)
         self.entry_desc.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 10))
 
-        ctk.CTkLabel(self, text="Timeline / Scheduling:", font=ctk.CTkFont(weight="bold")).grid(row=2, column=0, sticky="w", padx=20, pady=(5, 2))
+        # Priority Selector
+        ctk.CTkLabel(self, text="Priority:", font=ctk.CTkFont(weight="bold")).grid(row=2, column=0, sticky="w", padx=20, pady=(0, 2))
+        self.priority_var = ctk.StringVar(value=init_prio)
+        prio_frame = ctk.CTkSegmentedButton(
+            self,
+            values=["Low", "Medium", "High"],
+            variable=self.priority_var,
+            selected_color="#2563EB",
+            selected_hover_color="#1D4ED8"
+        )
+        prio_frame.grid(row=3, column=0, sticky="w", padx=20, pady=(0, 10))
+
+        ctk.CTkLabel(self, text="Timeline / Scheduling:", font=ctk.CTkFont(weight="bold")).grid(row=4, column=0, sticky="w", padx=20, pady=(5, 2))
         
-        self.schedule_mode = ctk.StringVar(value="none")
+        if init_start and init_due:
+            initial_mode = "range"
+        elif init_due:
+            initial_mode = "due"
+        else:
+            initial_mode = "none"
+
+        self.schedule_mode = ctk.StringVar(value=initial_mode)
         mode_frame = ctk.CTkFrame(self, fg_color="transparent")
-        mode_frame.grid(row=3, column=0, sticky="w", padx=20, pady=(0, 10))
+        mode_frame.grid(row=5, column=0, sticky="w", padx=20, pady=(0, 10))
 
         r1 = ctk.CTkRadioButton(mode_frame, text="No Dates", variable=self.schedule_mode, value="none", command=self._update_date_pickers)
         r1.pack(side="left", padx=(0, 15))
@@ -224,7 +253,7 @@ class TaskCreateDialog(ctk.CTkToplevel):
         r3.pack(side="left", padx=15)
 
         self.dates_frame = ctk.CTkFrame(self, fg_color="#24292E", corner_radius=6)
-        self.dates_frame.grid(row=4, column=0, sticky="ew", padx=20, pady=(0, 15))
+        self.dates_frame.grid(row=6, column=0, sticky="ew", padx=20, pady=(0, 15))
 
         self.lbl_start = ctk.CTkLabel(self.dates_frame, text="Start Date:", font=ctk.CTkFont(size=12))
         self.cal_start = DateEntry(self.dates_frame, width=12, background="#2563EB", foreground="white", borderwidth=2, date_pattern='yyyy-mm-dd')
@@ -232,10 +261,21 @@ class TaskCreateDialog(ctk.CTkToplevel):
         self.lbl_due = ctk.CTkLabel(self.dates_frame, text="Due / End Date:", font=ctk.CTkFont(size=12))
         self.cal_due = DateEntry(self.dates_frame, width=12, background="#2563EB", foreground="white", borderwidth=2, date_pattern='yyyy-mm-dd')
 
+        if init_start:
+            try:
+                self.cal_start.set_date(datetime.strptime(init_start, "%Y-%m-%d").date())
+            except Exception:
+                pass
+        if init_due:
+            try:
+                self.cal_due.set_date(datetime.strptime(init_due, "%Y-%m-%d").date())
+            except Exception:
+                pass
+
         self._update_date_pickers()
 
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.grid(row=5, column=0, sticky="e", padx=20, pady=(5, 15))
+        btn_frame.grid(row=7, column=0, sticky="e", padx=20, pady=(5, 15))
 
         btn_cancel = ctk.CTkButton(btn_frame, text="Cancel", width=80, fg_color="#475569", hover_color="#334155", command=self.cancel_event)
         btn_cancel.pack(side="right", padx=(10, 0))
@@ -284,6 +324,7 @@ class TaskCreateDialog(ctk.CTkToplevel):
 
         self.result = {
             "description": desc,
+            "priority": self.priority_var.get(),
             "start_date": start_date,
             "due_date": due_date
         }
@@ -495,6 +536,12 @@ class ProjectApp(ctk.CTk):
         self.project_dropdown = ctk.CTkOptionMenu(self.menu_bar, variable=self.project_variable, 
                                                  command=self._load_project_from_dropdown)
         self.project_dropdown.pack(side="left", padx=5, pady=5)
+
+        # Direct intercept on dropdown and inner widgets to ensure it renders upward
+        self.project_dropdown._open_dropdown_menu = self._open_project_dropdown_upward
+        self.project_dropdown._canvas.bind("<Button-1>", lambda e: [self._open_project_dropdown_upward(), "break"][1])
+        self.project_dropdown._text_label.bind("<Button-1>", lambda e: [self._open_project_dropdown_upward(), "break"][1])
+        
         self._refresh_project_dropdown()
 
         self.btn_weekly_summary = ctk.CTkButton(self.menu_bar, text="Weekly Summary", fg_color="#6366F1", hover_color="#4F46E5",
@@ -506,6 +553,36 @@ class ProjectApp(ctk.CTk):
 
         self.setup_ui_components()
         self.switch_to_notes_view()
+
+    def _open_project_dropdown_upward(self):
+        """Forces the CTkOptionMenu dropdown to display cleanly above the bottom toolbar."""
+        dropdown = self.project_dropdown
+        if dropdown._state == "disabled":
+            return
+
+        if dropdown._dropdown_menu is None:
+            dropdown._dropdown_menu = dropdown._dropdown_menu_class(
+                master=dropdown,
+                values=dropdown._values,
+                command=dropdown._dropdown_callback,
+                **dropdown._dropdown_menu_kwargs
+            )
+
+        menu = dropdown._dropdown_menu
+        menu.configure(values=dropdown._values)
+
+        # Force geometry calculation to get the true height
+        menu.update_idletasks()
+        menu_height = menu.winfo_reqheight()
+
+        root_x = dropdown.winfo_rootx()
+        root_y = dropdown.winfo_rooty()
+
+        # Place the bottom edge 4px above the top edge of the selector button
+        spawn_x = root_x
+        spawn_y = max(10, root_y - menu_height - 4)
+
+        menu.open(spawn_x, spawn_y)
 
     def _refresh_project_dropdown(self):
         try:
@@ -567,7 +644,8 @@ class ProjectApp(ctk.CTk):
                             due_date TEXT, 
                             is_completed INTEGER DEFAULT 0,
                             completed_date TEXT,
-                            completion_notes TEXT
+                            completion_notes TEXT,
+                            priority TEXT DEFAULT 'Medium'
                           )''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS questions (
                             id INTEGER PRIMARY KEY, 
@@ -625,6 +703,11 @@ class ProjectApp(ctk.CTk):
             cursor.execute("SELECT completion_notes FROM tasks LIMIT 1")
         except sqlite3.OperationalError:
             cursor.execute("ALTER TABLE tasks ADD COLUMN completion_notes TEXT")
+
+        try:
+            cursor.execute("SELECT priority FROM tasks LIMIT 1")
+        except sqlite3.OperationalError:
+            cursor.execute("ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT 'Medium'")
             
         conn.commit()
         conn.close()
@@ -1136,26 +1219,37 @@ class ProjectApp(ctk.CTk):
             command=self.open_add_task_dialog, 
             fg_color="#2E8B57", 
             hover_color="#20603C",
-            height=32
+            height=30
         )
         self.main_btn_add_task.grid(row=0, column=0, sticky="w")
 
+        if not hasattr(self, 'todo_scope_var'):
+            self.todo_scope_var = ctk.StringVar(value="Current Project")
+        
+        self.todo_scope_seg = ctk.CTkSegmentedButton(
+            input_frame,
+            values=["Current Project", "All Projects (Global Tasks)"],
+            variable=self.todo_scope_var,
+            command=lambda val: self.load_tasks()
+        )
+        self.todo_scope_seg.grid(row=0, column=1, sticky="e", padx=(10, 0))
+
         active_container = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        active_container.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 5))
+        active_container.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 4))
         active_container.grid_columnconfigure(0, weight=1)
         active_container.grid_rowconfigure(1, weight=1)
 
-        ctk.CTkLabel(active_container, text="Active Tasks", font=ctk.CTkFont(size=16, weight="bold")).grid(row=0, column=0, sticky="w", padx=5, pady=(0, 5))
+        ctk.CTkLabel(active_container, text="Active Tasks", font=ctk.CTkFont(size=15, weight="bold")).grid(row=0, column=0, sticky="w", padx=5, pady=(0, 3))
         self.main_todo_frame = ctk.CTkScrollableFrame(active_container)
         self.main_todo_frame.grid(row=1, column=0, sticky="nsew")
 
-        completed_container = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        completed_container.grid(row=2, column=0, sticky="nsew", padx=10, pady=(5, 10))
-        completed_container.grid_columnconfigure(0, weight=1)
-        completed_container.grid_rowconfigure(1, weight=1)
+        self.completed_container = ctk.CTkFrame(self.main_frame, fg_color="transparent")
+        self.completed_container.grid(row=2, column=0, sticky="nsew", padx=10, pady=(4, 10))
+        self.completed_container.grid_columnconfigure(0, weight=1)
+        self.completed_container.grid_rowconfigure(1, weight=1)
 
-        ctk.CTkLabel(completed_container, text="Completed Tasks (Past Activities)", font=ctk.CTkFont(size=16, weight="bold")).grid(row=0, column=0, sticky="w", padx=5, pady=(0, 5))
-        self.completed_todo_frame = ctk.CTkScrollableFrame(completed_container)
+        ctk.CTkLabel(self.completed_container, text="Completed Tasks (Past Activities)", font=ctk.CTkFont(size=15, weight="bold")).grid(row=0, column=0, sticky="w", padx=5, pady=(0, 3))
+        self.completed_todo_frame = ctk.CTkScrollableFrame(self.completed_container)
         self.completed_todo_frame.grid(row=1, column=0, sticky="nsew")
 
         self.load_tasks()
@@ -1165,7 +1259,7 @@ class ProjectApp(ctk.CTk):
             messagebox.showerror("Error", "No project loaded.")
             return
 
-        dialog = TaskCreateDialog(self)
+        dialog = TaskEditDialog(self)
         task_data = dialog.result
         if not task_data:
             return
@@ -1173,8 +1267,8 @@ class ProjectApp(ctk.CTk):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO tasks (task_description, start_date, due_date) VALUES (?, ?, ?)",
-            (task_data["description"], task_data["start_date"], task_data["due_date"])
+            "INSERT INTO tasks (task_description, priority, start_date, due_date) VALUES (?, ?, ?, ?)",
+            (task_data["description"], task_data["priority"], task_data["start_date"], task_data["due_date"])
         )
         conn.commit()
         conn.close()
@@ -1182,24 +1276,142 @@ class ProjectApp(ctk.CTk):
         self.load_tasks()
         self.load_upcoming_tasks()
 
+    def open_edit_task_dialog(self, task_id, db_target=None):
+        target_db = db_target if db_target else self.db_path
+        if not target_db:
+            return
+
+        conn = sqlite3.connect(target_db)
+        cursor = conn.cursor()
+        cursor.execute("SELECT task_description, priority, start_date, due_date FROM tasks WHERE id = ?", (task_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            messagebox.showerror("Error", "Could not find task to edit.")
+            return
+
+        desc, priority, start_date, due_date = row
+        dialog = TaskEditDialog(self, task_id=task_id, initial_data={
+            "description": desc,
+            "priority": priority if priority else "Medium",
+            "start_date": start_date,
+            "due_date": due_date
+        })
+
+        if dialog.result:
+            data = dialog.result
+            conn = sqlite3.connect(target_db)
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE tasks SET task_description = ?, priority = ?, start_date = ?, due_date = ? WHERE id = ?",
+                (data["description"], data["priority"], data["start_date"], data["due_date"], task_id)
+            )
+            conn.commit()
+            conn.close()
+            self.load_tasks()
+            self.load_upcoming_tasks()
+
     def _format_date_badge(self, start_date: str, due_date: str):
         today_str = datetime.now().strftime("%Y-%m-%d")
         if start_date and due_date:
             try:
-                s_dt = datetime.strptime(start_date, "%Y-%m-%d").strftime("%d/%m/%Y")
-                d_dt = datetime.strptime(due_date, "%Y-%m-%d").strftime("%d/%m/%Y")
+                s_dt = datetime.strptime(start_date, "%Y-%m-%d").strftime("%d/%m")
+                d_dt = datetime.strptime(due_date, "%Y-%m-%d").strftime("%d/%m")
                 is_overdue = due_date < today_str
                 return f"🗓 {s_dt} → {d_dt}", is_overdue
             except ValueError:
                 return f"🗓 {start_date} → {due_date}", False
         elif due_date:
             try:
-                d_dt = datetime.strptime(due_date, "%Y-%m-%d").strftime("%d/%m/%Y")
+                d_dt = datetime.strptime(due_date, "%Y-%m-%d").strftime("%d/%m")
                 is_overdue = due_date < today_str
-                return f"📅 Due: {d_dt}", is_overdue
+                return f"📅 {d_dt}", is_overdue
             except ValueError:
-                return f"📅 Due: {due_date}", False
+                return f"📅 {due_date}", False
         return "", False
+
+    def _format_priority_badge(self, priority: str):
+        p = (priority or "Medium").capitalize()
+        if p == "High":
+            return "🔴 High", "#EF4444"
+        elif p == "Low":
+            return "⚪ Low", "#94A3B8"
+        return "🟡 Med", "#F59E0B"
+
+    def _render_task_item(self, parent_frame, task_info, row_index, is_completed=False):
+        task_id, desc, priority, s_date, d_date, target_db = task_info
+
+        bg_color = "#1E2328" if is_completed else "#24292E"
+        card = ctk.CTkFrame(parent_frame, fg_color=bg_color, corner_radius=5)
+        card.grid(row=row_index, column=0, sticky="ew", padx=2, pady=2)
+        card.grid_columnconfigure(1, weight=1)
+
+        if not is_completed:
+            check = ctk.CTkCheckBox(card, text="", width=20, checkbox_width=18, checkbox_height=18,
+                                    command=lambda t_id=task_id, db=target_db: self.toggle_task(t_id, db_target=db))
+            check.grid(row=0, column=0, padx=(8, 4), pady=4, sticky="w")
+        else:
+            check_lbl = ctk.CTkLabel(card, text="✔", font=ctk.CTkFont(size=12, weight="bold"), text_color="#10B981")
+            check_lbl.grid(row=0, column=0, padx=(8, 4), pady=4, sticky="w")
+
+        content_frame = ctk.CTkFrame(card, fg_color="transparent")
+        content_frame.grid(row=0, column=1, sticky="ew", padx=2, pady=3)
+        content_frame.grid_columnconfigure(0, weight=1)
+
+        p_badge, p_color = self._format_priority_badge(priority)
+        prio_lbl = ctk.CTkLabel(content_frame, text=p_badge, font=ctk.CTkFont(size=10, weight="bold"), text_color=p_color)
+        prio_lbl.pack(side="left", padx=(0, 6))
+
+        task_lbl = ctk.CTkLabel(
+            content_frame, 
+            text=desc, 
+            font=ctk.CTkFont(size=12),
+            text_color="#CBD5E1" if is_completed else "#F1F5F9",
+            anchor="w", 
+            justify="left",
+            wraplength=600
+        )
+        task_lbl.pack(side="left", fill="x", expand=True)
+
+        badge_text, is_overdue = self._format_date_badge(s_date, d_date)
+        if badge_text:
+            badge_color = "#F87171" if is_overdue else "#38BDF8"
+            overdue_tag = " [OVERDUE]" if is_overdue and not is_completed else ""
+            meta_lbl = ctk.CTkLabel(
+                content_frame, 
+                text=f"{badge_text}{overdue_tag}", 
+                text_color=badge_color, 
+                font=ctk.CTkFont(size=11, weight="bold")
+            )
+            meta_lbl.pack(side="right", padx=(8, 4))
+
+        action_btn_frame = ctk.CTkFrame(card, fg_color="transparent")
+        action_btn_frame.grid(row=0, column=2, padx=(2, 6), pady=4, sticky="e")
+
+        btn_edit = ctk.CTkButton(
+            action_btn_frame, 
+            text="Edit", 
+            width=38, 
+            height=20, 
+            font=ctk.CTkFont(size=11), 
+            fg_color="#3B8ED0", 
+            hover_color="#2563EB", 
+            command=lambda t_id=task_id, db=target_db: self.open_edit_task_dialog(t_id, db_target=db)
+        )
+        btn_edit.pack(side="left", padx=(0, 4))
+
+        del_btn = ctk.CTkButton(
+            action_btn_frame, 
+            text="✕", 
+            width=22, 
+            height=20, 
+            font=ctk.CTkFont(size=11),
+            fg_color="#EF4444" if not is_completed else "#991B1B", 
+            hover_color="#DC2626" if not is_completed else "#7F1D1D", 
+            command=lambda t_id=task_id, db=target_db: self.delete_task(t_id, db_target=db)
+        )
+        del_btn.pack(side="left")
 
     def load_tasks(self):
         if hasattr(self, 'main_todo_frame') and self.main_todo_frame.winfo_exists():
@@ -1210,99 +1422,174 @@ class ProjectApp(ctk.CTk):
             for widget in self.completed_todo_frame.winfo_children():
                 widget.destroy()
 
-        if not self.db_path:
-            return
+        is_global = hasattr(self, 'todo_scope_var') and ("All Projects" in self.todo_scope_var.get())
 
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT id, task_description, start_date, due_date FROM tasks WHERE is_completed = 0 ORDER BY id ASC")
-        active_tasks = cursor.fetchall()
-
-        cursor.execute("SELECT id, task_description, completed_date, completion_notes, start_date, due_date FROM tasks WHERE is_completed = 1 ORDER BY id DESC")
-        completed_tasks = cursor.fetchall()
-        conn.close()
-
-        if hasattr(self, 'main_todo_frame') and self.main_todo_frame.winfo_exists():
-            self.main_todo_frame.grid_columnconfigure(1, weight=1)
-            if not active_tasks:
-                ctk.CTkLabel(self.main_todo_frame, text="No active tasks. You're all caught up!").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        if hasattr(self, 'completed_container') and self.completed_container.winfo_exists():
+            if is_global:
+                self.completed_container.grid_remove()
+                self.main_frame.grid_rowconfigure(1, weight=1)
+                self.main_frame.grid_rowconfigure(2, weight=0)
             else:
-                for i, (task_id, desc, s_date, d_date) in enumerate(active_tasks):
-                    card = ctk.CTkFrame(self.main_todo_frame, fg_color="#24292E")
-                    card.grid(row=i, column=0, columnspan=3, sticky="ew", padx=5, pady=4)
-                    card.grid_columnconfigure(1, weight=1)
+                self.completed_container.grid()
+                self.main_frame.grid_rowconfigure(1, weight=3)
+                self.main_frame.grid_rowconfigure(2, weight=2)
 
-                    check = ctk.CTkCheckBox(card, text="", width=24, command=lambda t_id=task_id: self.toggle_task(t_id))
-                    check.grid(row=0, column=0, padx=(8, 4), pady=8, sticky="n")
+        if is_global:
+            self.main_todo_frame.grid_columnconfigure(0, weight=1)
+            project_files = sorted([f for f in os.listdir(self.projects_dir) if f.endswith(".db")])
+            total_active_tasks = 0
+            row_counter = 0
 
-                    text_frame = ctk.CTkFrame(card, fg_color="transparent")
-                    text_frame.grid(row=0, column=1, sticky="ew", padx=4, pady=6)
-                    text_frame.grid_columnconfigure(0, weight=1)
+            for p_file in project_files:
+                p_path = os.path.join(self.projects_dir, p_file)
+                p_name = os.path.splitext(p_file)[0]
+                tasks_in_project = []
+                try:
+                    conn = sqlite3.connect(p_path)
+                    cursor = conn.cursor()
+                    try:
+                        cursor.execute("SELECT id, task_description, priority, start_date, due_date FROM tasks WHERE is_completed = 0")
+                    except sqlite3.OperationalError:
+                        cursor.execute("ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT 'Medium'")
+                        conn.commit()
+                        cursor.execute("SELECT id, task_description, priority, start_date, due_date FROM tasks WHERE is_completed = 0")
+                    tasks_in_project = cursor.fetchall()
+                    conn.close()
+                except Exception:
+                    continue
 
-                    label = ctk.CTkLabel(text_frame, text=desc, wraplength=650, justify="left", anchor="w", font=ctk.CTkFont(size=13))
-                    label.grid(row=0, column=0, sticky="w")
+                if not tasks_in_project:
+                    continue
 
-                    badge_text, is_overdue = self._format_date_badge(s_date, d_date)
-                    if badge_text:
-                        badge_color = "#F87171" if is_overdue else "#38BDF8"
-                        overdue_tag = " [OVERDUE]" if is_overdue else ""
-                        meta_lbl = ctk.CTkLabel(text_frame, text=f"{badge_text}{overdue_tag}", text_color=badge_color, font=ctk.CTkFont(size=11, weight="bold"))
-                        meta_lbl.grid(row=1, column=0, sticky="w", pady=(2, 0))
+                total_active_tasks += len(tasks_in_project)
 
-                    del_btn = ctk.CTkButton(card, text="X", width=28, height=26, fg_color="red", hover_color="#C00000", command=lambda t_id=task_id: self.delete_task(t_id))
-                    del_btn.grid(row=0, column=2, padx=(5, 8), pady=8, sticky="n")
+                # Project Section Group Box
+                proj_group = ctk.CTkFrame(self.main_todo_frame, fg_color="#1E2227", corner_radius=6, border_width=1, border_color="#334155")
+                proj_group.grid(row=row_counter, column=0, sticky="ew", padx=2, pady=(6, 8))
+                proj_group.grid_columnconfigure(0, weight=1)
+                row_counter += 1
 
-        if hasattr(self, 'completed_todo_frame') and self.completed_todo_frame.winfo_exists():
-            self.completed_todo_frame.grid_columnconfigure(0, weight=1)
-            if not completed_tasks:
-                ctk.CTkLabel(self.completed_todo_frame, text="No completed tasks recorded yet.").grid(row=0, column=0, padx=10, pady=10, sticky="w")
-            else:
-                for i, (task_id, desc, completed_date, completion_notes, s_date, d_date) in enumerate(completed_tasks):
-                    card = ctk.CTkFrame(self.completed_todo_frame, fg_color="#2B2B2B")
-                    card.grid(row=i, column=0, sticky="ew", padx=5, pady=4)
-                    card.grid_columnconfigure(0, weight=1)
+                header_lbl = ctk.CTkLabel(
+                    proj_group, 
+                    text=f"📁 {p_name} ({len(tasks_in_project)})", 
+                    font=ctk.CTkFont(size=13, weight="bold"), 
+                    text_color="#38BDF8", 
+                    anchor="w"
+                )
+                header_lbl.grid(row=0, column=0, sticky="w", padx=10, pady=(6, 4))
 
-                    comp_date_disp = "N/A"
-                    if completed_date:
-                        try:
-                            dt = datetime.strptime(completed_date, "%Y-%m-%d %H:%M:%S")
-                            comp_date_disp = dt.strftime("%d/%m/%Y %H:%M")
-                        except ValueError:
-                            comp_date_disp = completed_date
+                prio_order = {"High": 0, "Medium": 1, "Low": 2}
+                tasks_in_project.sort(key=lambda t: (prio_order.get(t[2] or "Medium", 1), t[4] is None, t[4] or ""))
 
-                    header_frame = ctk.CTkFrame(card, fg_color="transparent")
-                    header_frame.grid(row=0, column=0, sticky="ew", padx=8, pady=(6, 2))
-                    header_frame.grid_columnconfigure(0, weight=1)
+                for sub_i, (t_id, desc, prio, s_date, d_date) in enumerate(tasks_in_project):
+                    self._render_task_item(proj_group, (t_id, desc, prio, s_date, d_date, p_path), sub_i + 1, is_completed=False)
 
-                    desc_lbl = ctk.CTkLabel(
-                        header_frame, 
-                        text=f"✔ {desc}", 
-                        font=ctk.CTkFont(weight="bold"), 
-                        text_color="#94A3B8", 
-                        anchor="w", 
-                        justify="left",
-                        wraplength=600
-                    )
-                    desc_lbl.grid(row=0, column=0, sticky="w")
+            if total_active_tasks == 0:
+                ctk.CTkLabel(self.main_todo_frame, text="No outstanding tasks found across any active projects!", text_color="#94A3B8").grid(row=0, column=0, padx=10, pady=10, sticky="w")
 
-                    meta_lbl = ctk.CTkLabel(header_frame, text=f"Completed: {comp_date_disp}", text_color="#38BDF8", font=ctk.CTkFont(size=11))
-                    meta_lbl.grid(row=0, column=1, padx=(10, 5), sticky="e")
+        else:
+            if not self.db_path:
+                return
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            try:
+                cursor.execute("SELECT id, task_description, priority, start_date, due_date FROM tasks WHERE is_completed = 0 ORDER BY id ASC")
+            except sqlite3.OperationalError:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN priority TEXT DEFAULT 'Medium'")
+                conn.commit()
+                cursor.execute("SELECT id, task_description, priority, start_date, due_date FROM tasks WHERE is_completed = 0 ORDER BY id ASC")
+            active_tasks = cursor.fetchall()
 
-                    del_btn = ctk.CTkButton(header_frame, text="X", width=25, height=22, fg_color="red", hover_color="#C00000", command=lambda t_id=task_id: self.delete_task(t_id))
-                    del_btn.grid(row=0, column=2, padx=(5, 0), sticky="e")
+            cursor.execute("SELECT id, task_description, priority, completed_date, completion_notes, start_date, due_date FROM tasks WHERE is_completed = 1 ORDER BY id DESC")
+            completed_tasks = cursor.fetchall()
+            conn.close()
 
-                    if completion_notes and completion_notes.strip():
-                        notes_lbl = ctk.CTkLabel(
-                            card, 
-                            text=f"Note: {completion_notes}", 
-                            text_color="#CBD5E1", 
-                            font=ctk.CTkFont(size=12, slant="italic"), 
+            # Render Active Tasks
+            if hasattr(self, 'main_todo_frame') and self.main_todo_frame.winfo_exists():
+                self.main_todo_frame.grid_columnconfigure(0, weight=1)
+                if not active_tasks:
+                    ctk.CTkLabel(self.main_todo_frame, text="No active tasks. You're all caught up!", text_color="#94A3B8").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+                else:
+                    for i, (t_id, desc, prio, s_date, d_date) in enumerate(active_tasks):
+                        self._render_task_item(self.main_todo_frame, (t_id, desc, prio, s_date, d_date, self.db_path), i, is_completed=False)
+
+            # Render Completed Tasks
+            if hasattr(self, 'completed_todo_frame') and self.completed_todo_frame.winfo_exists():
+                self.completed_todo_frame.grid_columnconfigure(0, weight=1)
+                if not completed_tasks:
+                    ctk.CTkLabel(self.completed_todo_frame, text="No completed tasks recorded yet.", text_color="#94A3B8").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+                else:
+                    for i, (t_id, desc, prio, completed_date, completion_notes, s_date, d_date) in enumerate(completed_tasks):
+                        card = ctk.CTkFrame(self.completed_todo_frame, fg_color="#1E2328", corner_radius=5)
+                        card.grid(row=i, column=0, sticky="ew", padx=2, pady=2)
+                        card.grid_columnconfigure(1, weight=1)
+
+                        comp_date_disp = "N/A"
+                        if completed_date:
+                            try:
+                                dt = datetime.strptime(completed_date, "%Y-%m-%d %H:%M:%S")
+                                comp_date_disp = dt.strftime("%d/%m %H:%M")
+                            except ValueError:
+                                comp_date_disp = completed_date
+
+                        row_frame = ctk.CTkFrame(card, fg_color="transparent")
+                        row_frame.grid(row=0, column=0, sticky="ew", padx=6, pady=3)
+                        row_frame.grid_columnconfigure(1, weight=1)
+
+                        p_badge, p_color = self._format_priority_badge(prio)
+                        prio_lbl = ctk.CTkLabel(row_frame, text=p_badge, font=ctk.CTkFont(size=10, weight="bold"), text_color=p_color)
+                        prio_lbl.grid(row=0, column=0, padx=(0, 6), sticky="w")
+
+                        desc_lbl = ctk.CTkLabel(
+                            row_frame, 
+                            text=f"✔ {desc}", 
+                            font=ctk.CTkFont(size=12), 
+                            text_color="#94A3B8", 
                             anchor="w", 
                             justify="left",
-                            wraplength=750
+                            wraplength=600
                         )
-                        notes_lbl.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 6))
+                        desc_lbl.grid(row=0, column=1, sticky="w")
+
+                        meta_lbl = ctk.CTkLabel(row_frame, text=f"Completed: {comp_date_disp}", text_color="#64748B", font=ctk.CTkFont(size=11))
+                        meta_lbl.grid(row=0, column=2, padx=(6, 4), sticky="e")
+
+                        btn_edit = ctk.CTkButton(
+                            row_frame, 
+                            text="Edit", 
+                            width=38, 
+                            height=20, 
+                            font=ctk.CTkFont(size=11), 
+                            fg_color="#3B8ED0", 
+                            hover_color="#2563EB", 
+                            command=lambda target_id=t_id: self.open_edit_task_dialog(target_id)
+                        )
+                        btn_edit.grid(row=0, column=3, padx=(2, 2), sticky="e")
+
+                        del_btn = ctk.CTkButton(
+                            row_frame, 
+                            text="✕", 
+                            width=22, 
+                            height=20, 
+                            font=ctk.CTkFont(size=11),
+                            fg_color="#991B1B", 
+                            hover_color="#7F1D1D", 
+                            command=lambda target_id=t_id: self.delete_task(target_id)
+                        )
+                        del_btn.grid(row=0, column=4, padx=(2, 2), sticky="e")
+
+                        if completion_notes and completion_notes.strip():
+                            notes_lbl = ctk.CTkLabel(
+                                card, 
+                                text=f"↳ Note: {completion_notes}", 
+                                text_color="#CBD5E1", 
+                                font=ctk.CTkFont(size=11, slant="italic"), 
+                                anchor="w", 
+                                justify="left",
+                                wraplength=750
+                            )
+                            notes_lbl.grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 3))
 
     # --- Roadmap / Gantt Timeline View ---
     def switch_to_roadmap_view(self):
@@ -1682,8 +1969,9 @@ class ProjectApp(ctk.CTk):
             conn.close()
             self.load_questions()
 
-    def toggle_task(self, task_id):
-        if not self.db_path: return
+    def toggle_task(self, task_id, db_target=None):
+        active_db = db_target if db_target else self.db_path
+        if not active_db: return
 
         dialog = CustomDialog(self, title="Complete Task", prompt="Add an optional completion note:")
         note = dialog.result
@@ -1692,7 +1980,7 @@ class ProjectApp(ctk.CTk):
 
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(active_db)
         cursor = conn.cursor()
         cursor.execute(
             "UPDATE tasks SET is_completed = 1, completed_date = ?, completion_notes = ? WHERE id = ?",
@@ -1703,9 +1991,12 @@ class ProjectApp(ctk.CTk):
         self.load_tasks()
         self.load_upcoming_tasks()
     
-    def delete_task(self, task_id):
+    def delete_task(self, task_id, db_target=None):
+        active_db = db_target if db_target else self.db_path
+        if not active_db: return
+
         if messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this task?"):
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(active_db)
             cursor = conn.cursor()
             cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
             conn.commit()
@@ -2501,13 +2792,14 @@ class ProjectApp(ctk.CTk):
                 except sqlite3.OperationalError:
                     pass
 
-                # 3. Open Tasks with Dates
+                # 3. Open Tasks with Priority & Dates
                 open_tasks = []
                 try:
-                    cursor.execute("SELECT task_description, start_date, due_date FROM tasks WHERE is_completed = 0 ORDER BY id ASC")
+                    cursor.execute("SELECT task_description, priority, start_date, due_date FROM tasks WHERE is_completed = 0 ORDER BY id ASC")
                     open_tasks = cursor.fetchall()
                 except sqlite3.OperationalError:
-                    pass
+                    cursor.execute("SELECT task_description, start_date, due_date FROM tasks WHERE is_completed = 0 ORDER BY id ASC")
+                    open_tasks = [(r[0], "Medium", r[1], r[2]) for r in cursor.fetchall()]
 
                 # 4. Open Questions / Blockers
                 open_questions = []
@@ -2588,16 +2880,20 @@ class ProjectApp(ctk.CTk):
                     total_open_tasks_count += len(open_tasks)
                     plain_lines.append("  Outstanding / In Progress:")
                     html_blocks.append('<div style="margin-top: 8px;"><strong style="font-size: 13px; color: #B45309;">Outstanding Tasks / Next Steps:</strong><ul style="margin: 4px 0 8px 20px; padding: 0;">')
-                    for (task_desc, s_date, d_date) in open_tasks:
+                    for item in open_tasks:
+                        task_desc, prio, s_date, d_date = item[0], item[1], item[2], item[3]
                         date_badge, is_overdue = self._format_date_badge(s_date, d_date)
                         date_str_plain = f" [{date_badge}]" if date_badge else ""
-                        plain_lines.append(f"    ◻ {task_desc}{date_str_plain}")
+                        prio_str_plain = f" [{prio}]" if prio else ""
+                        plain_lines.append(f"    ◻ {task_desc}{prio_str_plain}{date_str_plain}")
                         
                         html_date = ""
                         if date_badge:
                             color = "#DC2626" if is_overdue else "#0284C7"
                             html_date = f' <span style="color: {color}; font-size: 11px; font-weight: 600;">{date_badge}</span>'
-                        html_blocks.append(f'<li style="margin-bottom: 3px; color: #475569;">◻ {task_desc}{html_date}</li>')
+                        prio_color = "#DC2626" if prio == "High" else ("#D97706" if prio == "Medium" else "#64748B")
+                        html_prio = f' <span style="color: {prio_color}; font-size: 11px; font-weight: 600;">[{prio}]</span>' if prio else ""
+                        html_blocks.append(f'<li style="margin-bottom: 3px; color: #475569;">◻ {task_desc}{html_prio}{html_date}</li>')
                     html_blocks.append('</ul></div>')
 
                 if open_questions:
